@@ -8,6 +8,8 @@ from langchain_openai import ChatOpenAI
 from langchain.tools.render import render_text_description
 from typing import Union, List
 from langchain.agents.format_scratchpad import format_log_to_str
+from callback import MyCallbackHandler
+
 load_dotenv()
 
 
@@ -57,8 +59,12 @@ if __name__ == "__main__":
         tool_names=", ".join([t.name for t in tools]),
     )
 
-    llm = ChatOpenAI(temperature=0, stop=[
-                     "\nObservation", "Observation"], model="gpt-3.5-turbo")
+    llm = ChatOpenAI(
+        temperature=0,
+        stop=["\nObservation", "Observation"],
+        model="gpt-3.5-turbo",
+        callbacks=[MyCallbackHandler()],
+    )
     intermediate_steps = []
     input_dict = {
         "input": lambda x: x["input"],
@@ -66,30 +72,27 @@ if __name__ == "__main__":
     }
 
     agent = input_dict | prompt | llm | ReActSingleInputOutputParser()
-    agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
-        {
-            "input": "What is the length in characters of the text hello?",
-            "agent_scratchpad": intermediate_steps,
-        }
-    )
-    print(agent_step)
 
-    if isinstance(agent_step, AgentAction):
-        tool_name = agent_step.tool
-        tool_to_use = find_tool_by_name(tools, tool_name)
-        tool_input = agent_step.tool_input
+    agent_step = None
+    while not isinstance(agent_step, AgentFinish):
 
-        observation = tool_to_use.func(str(tool_input))
-        print(f"Tool {tool_name} returned {observation}")
-        intermediate_steps.append(
-            (agent_step, str(observation))
+        agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
+            {
+                "input": "What is the length in characters of the text hello?",
+                "agent_scratchpad": intermediate_steps,
+            }
         )
-    agent_step: Union[AgentAction, AgentFinish] = agent.invoke(
-        {
-            "input": "What is the length in characters of the text hello?",
-            "agent_scratchpad": intermediate_steps,
-        }
-    )
+        print(agent_step)
+
+        if isinstance(agent_step, AgentAction):
+            tool_name = agent_step.tool
+            tool_to_use = find_tool_by_name(tools, tool_name)
+            tool_input = agent_step.tool_input
+
+            observation = tool_to_use.func(str(tool_input))
+            print(f"Tool {tool_name} returned {observation}")
+            intermediate_steps.append((agent_step, str(observation)))
+
     if isinstance(agent_step, AgentFinish):
         print("### Agent Finish ###")
         print(agent_step.return_values)
